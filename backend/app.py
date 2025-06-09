@@ -18,6 +18,17 @@ camera_lock = threading.Lock()
 current_model = None
 current_model_name = None
 
+def preload_default_model():
+    """Preload the default model to avoid cold starts"""
+    global current_model, current_model_name
+    try:
+        logger.info("🚀 Preloading default model (YOLOv10s)...")
+        current_model, method = load_model("YOLOv10s")
+        current_model_name = "YOLOv10s"
+        logger.info(f"✅ Default model preloaded successfully using {method}")
+    except Exception as e:
+        logger.warning(f"⚠️ Failed to preload default model: {e}")
+
 # CRITICAL: Set up custom modules BEFORE any other imports
 try:
     from startup import setup_custom_modules, patch_ultralytics_directly
@@ -28,6 +39,10 @@ try:
         patch_ultralytics_directly()
     
     logger.info("✅ Custom YOLO modules loaded and registered successfully")
+    
+    # Preload default model after modules are set up
+    preload_default_model()
+    
 except Exception as e:
     logger.error(f"❌ Failed to set up custom modules: {e}")
 
