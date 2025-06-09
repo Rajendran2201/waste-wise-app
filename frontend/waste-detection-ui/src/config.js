@@ -4,7 +4,7 @@ const config = {
     API_URL: "http://127.0.0.1:5001"
   },
   production: {
-    API_URL: process.env.REACT_APP_API_URL || "https://your-backend-url.herokuapp.com"
+    API_URL: process.env.REACT_APP_API_URL || "https://waste-wise-app.onrender.com"
   }
 };
 

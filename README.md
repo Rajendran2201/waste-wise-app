@@ -46,50 +46,6 @@ cd frontend/waste-detection-ui
 npm install
 npm start
 ```
-
-## 🚀 Deployment
-
-### Option 1: Render.com (Recommended for Free)
-
-#### Backend Deployment
-1. **Create Render Account**: Sign up at [render.com](https://render.com)
-2. **New Web Service**: 
-   - Connect your GitHub repository
-   - Build Command: `pip install -r requirements.txt`
-   - Start Command: `gunicorn app:app --bind 0.0.0.0:$PORT`
-3. **Environment Variables**:
-   - `PORT`: 10000 (auto-set by Render)
-4. **Upload Models**: Add your YOLO model files to `backend/models/`
-
-#### Frontend Deployment
-1. **New Static Site**:
-   - Build Command: `npm run build`
-   - Publish Directory: `build`
-2. **Environment Variables**:
-   - `REACT_APP_API_URL`: Your backend URL
-
-### Option 2: Railway.app
-
-#### Backend
-1. **Connect Repository**: Link your GitHub repo
-2. **Auto-deploy**: Railway detects Python and deploys
-3. **Environment**: Add your model files
-
-#### Frontend
-1. **Static Site**: Deploy React build
-2. **Environment**: Set API URL
-
-### Option 3: Vercel (Frontend Only)
-
-```bash
-# Install Vercel CLI
-npm i -g vercel
-
-# Deploy frontend
-cd frontend/waste-detection-ui
-vercel
-```
-
 ## 🔧 Configuration
 
 ### Environment Variables
@@ -183,8 +139,3 @@ npm start
 
 This project is licensed under the MIT License.
 
-## 🙏 Acknowledgments
-
-- Ultralytics for YOLO models
-- OpenCV for computer vision
-- React and Tailwind CSS communities
