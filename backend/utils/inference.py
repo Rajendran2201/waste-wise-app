@@ -6,6 +6,22 @@ import cv2
 import numpy as np
 from PIL import Image
 
+# Import custom modules first to register them
+try:
+    import sys
+    sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    import custom_yolo_modules
+    from custom_yolo_modules import register_modules, patch_ultralytics_modules
+    
+    # Register custom modules
+    register_modules()
+    patch_ultralytics_modules()
+    print("✅ Custom YOLO modules loaded and registered")
+except ImportError as e:
+    print(f"⚠️ Custom modules not found: {e}")
+except Exception as e:
+    print(f"⚠️ Error loading custom modules: {e}")
+
 # Updated model paths - adjust these to match your actual model locations
 MODEL_MAP = {
     "YOLOv10s": "models/YOLOv10s.pt",

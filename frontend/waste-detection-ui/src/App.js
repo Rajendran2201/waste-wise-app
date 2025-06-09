@@ -147,6 +147,16 @@ function App() {
     setResultData([]);
 
     try {
+      console.log("🚀 Starting upload process...");
+      console.log("📋 Upload details:", {
+        mode,
+        model,
+        fileName: file.name,
+        fileSize: file.size,
+        fileType: file.type,
+        apiUrl: API_URL
+      });
+
       const formData = new FormData();
       formData.append("model", model);
       let endpoint = "/predict";
@@ -157,12 +167,28 @@ function App() {
         formData.append("video", file);
         endpoint = "/predict_video";
       }
+
+      console.log("📤 Sending request to:", `${API_URL}${endpoint}`);
+      
       const response = await fetch(`${API_URL}${endpoint}`, {
         method: "POST",
         body: formData,
       });
-      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+
+      console.log("📥 Response received:", {
+        status: response.status,
+        statusText: response.statusText,
+        ok: response.ok
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error("❌ Response error:", errorText);
+        throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
+      }
+
       const data = await response.json();
+      console.log("✅ Response data:", data);
       
       if (mode === "Video") {
         setResultImage(`${API_URL}${data.video_url}`);
@@ -178,10 +204,28 @@ function App() {
         setResultData(data.results || []);
       }
     } catch (err) {
-      console.error("Upload error:", err);
-      setError("Failed to process. Please check your input and try again.");
+      console.error("❌ Upload error:", err);
+      console.error("❌ Error details:", {
+        name: err.name,
+        message: err.message,
+        stack: err.stack
+      });
+      setError(`Failed to process. Error: ${err.message}`);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const testBackendConnection = async () => {
+    try {
+      setError("");
+      const response = await fetch(`${API_URL}/test`);
+      const data = await response.json();
+      console.log("Backend test response:", data);
+      alert(`Backend connection successful!\nStatus: ${data.status}\nMessage: ${data.message}`);
+    } catch (err) {
+      console.error("Backend connection test failed:", err);
+      setError(`Backend connection failed: ${err.message}`);
     }
   };
 
@@ -425,6 +469,14 @@ function App() {
                     </button>
                   </div>
                 )}
+                
+                {/* Debug: Test Backend Connection */}
+                <button
+                  onClick={testBackendConnection}
+                  className="w-full py-2 px-4 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm"
+                >
+                  🔧 Test Backend Connection
+                </button>
               </div>
             </div>
           </div>
