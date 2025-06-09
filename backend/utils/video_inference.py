@@ -2,7 +2,7 @@ import cv2
 import uuid
 import os
 from pathlib import Path
-from utils.inference import load_model
+from utils.inference_with_custom import load_model
 
 def run_video_inference(video_path, model_name):
     """Run inference on video and return the path to the processed video"""
