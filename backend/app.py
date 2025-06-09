@@ -40,9 +40,6 @@ try:
     
     logger.info("✅ Custom YOLO modules loaded and registered successfully")
     
-    # Preload default model after modules are set up
-    preload_default_model()
-    
 except Exception as e:
     logger.error(f"❌ Failed to set up custom modules: {e}")
 
@@ -52,13 +49,29 @@ from utils.video_inference import run_video_inference
 
 app = Flask(__name__)
 
-# Configure CORS to allow all origins
-CORS(app, origins=["*"], methods=["GET", "POST", "OPTIONS"], allow_headers=["Content-Type"])
+# Configure CORS to allow all origins with specific headers
+CORS(app, 
+     origins=["*"], 
+     methods=["GET", "POST", "OPTIONS"], 
+     allow_headers=["Content-Type", "Authorization", "X-Requested-With"],
+     supports_credentials=True)
+
+# Add CORS headers to all responses
+@app.after_request
+def after_request(response):
+    response.headers.add('Access-Control-Allow-Origin', '*')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Requested-With')
+    response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
+    response.headers.add('Access-Control-Allow-Credentials', 'true')
+    return response
 
 UPLOAD_FOLDER = "uploads"
 RESULT_FOLDER = "static/results"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(RESULT_FOLDER, exist_ok=True)
+
+# Preload default model after imports
+preload_default_model()
 
 def initialize_camera():
     """Initialize the webcam"""
