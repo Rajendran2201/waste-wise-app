@@ -6,6 +6,11 @@ import cv2
 import threading
 import time
 import numpy as np
+import logging
+
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Global variables for webcam
 camera = None
@@ -16,17 +21,19 @@ current_model_name = None
 # CRITICAL: Import custom modules BEFORE importing inference
 try:
     import custom_yolo_modules
-    print("✅ Custom YOLO modules loaded successfully")
+    logger.info("✅ Custom YOLO modules loaded successfully")
 except ImportError as e:
-    print(f"❌ Failed to import custom_yolo_modules: {e}")
-    print("Make sure custom_yolo_modules.py exists in your project root")
+    logger.error(f"❌ Failed to import custom_yolo_modules: {e}")
+    logger.error("Make sure custom_yolo_modules.py exists in your project root")
 
 # Now import inference utilities
 from utils.inference import load_model, run_inference
 from utils.video_inference import run_video_inference 
 
 app = Flask(__name__)
-CORS(app)
+
+# Configure CORS to allow all origins
+CORS(app, origins=["*"], methods=["GET", "POST", "OPTIONS"], allow_headers=["Content-Type"])
 
 UPLOAD_FOLDER = "uploads"
 RESULT_FOLDER = "static/results"
@@ -259,42 +266,69 @@ def predict_video():
 
 @app.route("/predict", methods=["POST"])
 def predict():
+    """Handle image file uploads and processing with enhanced error handling"""
     try:
+        logger.info("📥 Received prediction request")
+        
         # Check if file is present
         if 'file' not in request.files:
+            logger.error("❌ No file provided in request")
             return jsonify({"error": "No file provided"}), 400
         
         file = request.files['file']
-        model_name = request.form.get('model')
+        model_name = request.form.get('model', 'YOLOv10s')
+        
+        logger.info(f"📋 Request details - Model: {model_name}, Filename: {file.filename}")
 
         if file.filename == '':
+            logger.error("❌ No file selected")
             return jsonify({"error": "No file selected"}), 400
         if not model_name:
+            logger.error("❌ No model specified")
             return jsonify({"error": "No model specified"}), 400
 
         # Save uploaded file
         filename = secure_filename(file.filename)
         filepath = os.path.join(UPLOAD_FOLDER, filename)
+        logger.info(f"💾 Saving file to: {filepath}")
+        
         file.save(filepath)
+        
+        # Verify file was saved
+        if not os.path.exists(filepath):
+            logger.error(f"❌ File was not saved properly: {filepath}")
+            return jsonify({"error": "Failed to save uploaded file"}), 500
+            
+        file_size = os.path.getsize(filepath)
+        logger.info(f"✅ File saved successfully - Size: {file_size} bytes")
 
         ext = os.path.splitext(filename)[-1].lower()
+        logger.info(f"📄 File extension: {ext}")
 
         if ext in [".mp4", ".avi", ".mov", ".mkv"]:
+            logger.info("🎬 Processing video file")
             result_path = run_video_inference(filepath, model_name)
             os.remove(filepath)
+            logger.info(f"✅ Video processing complete: {result_path}")
             return jsonify({
                 "video_url": f"/results/{os.path.basename(result_path)}",
                 "results": "Video processed successfully"
             })
         else:
+            logger.info("🖼️ Processing image file")
             result_path, result_data = run_inference(filepath, model_name)
             os.remove(filepath)
+            logger.info(f"✅ Image processing complete - Detections: {len(result_data)}")
             return jsonify({
                 "image_url": f"/results/{os.path.basename(result_path)}",
                 "results": result_data
             })
 
     except Exception as e:
+        logger.error(f"❌ Prediction failed with error: {str(e)}")
+        logger.error(f"❌ Error type: {type(e).__name__}")
+        import traceback
+        logger.error(f"❌ Full traceback: {traceback.format_exc()}")
         return jsonify({"error": f"Inference failed: {str(e)}"}), 500
 
 @app.route("/results/<filename>")
@@ -378,6 +412,48 @@ def health_check():
         "model_files": model_files,
         "message": "Custom modules loaded successfully" if custom_loaded else "Custom modules not loaded - YOLOv10+ models may fail"
     })
+
+@app.route("/test", methods=["GET"])
+def test_endpoint():
+    """Simple test endpoint to verify backend is working"""
+    return jsonify({
+        "status": "success",
+        "message": "Backend is working!",
+        "timestamp": time.time(),
+        "models_available": ["YOLOv10s", "YOLOv10m", "YOLOv11n", "YOLOv12s"]
+    })
+
+@app.route("/test-upload", methods=["POST"])
+def test_upload():
+    """Test file upload functionality"""
+    try:
+        if 'file' not in request.files:
+            return jsonify({"error": "No file provided"}), 400
+        
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({"error": "No file selected"}), 400
+        
+        # Just save and return file info
+        filename = secure_filename(file.filename)
+        filepath = os.path.join(UPLOAD_FOLDER, f"test_{filename}")
+        file.save(filepath)
+        
+        file_size = os.path.getsize(filepath)
+        
+        # Clean up
+        os.remove(filepath)
+        
+        return jsonify({
+            "status": "success",
+            "message": "File upload test successful",
+            "filename": filename,
+            "size": file_size,
+            "type": file.content_type
+        })
+        
+    except Exception as e:
+        return jsonify({"error": f"Upload test failed: {str(e)}"}), 500
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5001))
