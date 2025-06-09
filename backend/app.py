@@ -18,25 +18,22 @@ camera_lock = threading.Lock()
 current_model = None
 current_model_name = None
 
-# CRITICAL: Import custom modules BEFORE importing inference
+# CRITICAL: Set up custom modules BEFORE any other imports
 try:
-    import custom_yolo_modules
-    from custom_yolo_modules import register_modules, patch_ultralytics_modules
+    from startup import setup_custom_modules, patch_ultralytics_directly
     
-    # Register custom modules with ultralytics
-    register_modules()
-    patch_ultralytics_modules()
+    # Try setup first
+    if not setup_custom_modules():
+        # Fallback to direct patching
+        patch_ultralytics_directly()
     
     logger.info("✅ Custom YOLO modules loaded and registered successfully")
-except ImportError as e:
-    logger.error(f"❌ Failed to import custom_yolo_modules: {e}")
-    logger.error("Make sure custom_yolo_modules.py exists in your project root")
 except Exception as e:
-    logger.error(f"❌ Failed to register custom modules: {e}")
+    logger.error(f"❌ Failed to set up custom modules: {e}")
 
 # Now import inference utilities
 from utils.inference import load_model, run_inference
-from utils.video_inference import run_video_inference 
+from utils.video_inference import run_video_inference
 
 app = Flask(__name__)
 
