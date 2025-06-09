@@ -1,7 +1,6 @@
 import React, { useState, useRef, useEffect } from "react";
 import { Upload, Image, Recycle, Loader2, CheckCircle, AlertCircle } from "lucide-react";
-
-const API_URL = "http://127.0.0.1:5001";
+import { API_URL } from './config';
 
 const modes = ["Image", "Video", "Webcam"];
 const validImageTypes = ["image/jpeg", "image/jpg", "image/png", "image/bmp"];
