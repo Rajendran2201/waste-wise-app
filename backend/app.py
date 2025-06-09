@@ -32,7 +32,7 @@ except Exception as e:
     logger.error(f"❌ Failed to set up custom modules: {e}")
 
 # Now import inference utilities
-from utils.inference import load_model_safe as load_model, run_inference
+from utils.inference_with_custom import load_model, run_inference
 from utils.video_inference import run_video_inference
 
 app = Flask(__name__)
@@ -78,13 +78,7 @@ def load_model_for_webcam(model_name):
     global current_model, current_model_name
     if current_model_name != model_name:
         try:
-            # Get model path from MODEL_MAP
-            from utils.inference import MODEL_MAP
-            model_path = MODEL_MAP.get(model_name)
-            if not model_path:
-                raise ValueError(f"Model {model_name} not found in MODEL_MAP")
-            
-            current_model, method = load_model(model_path)
+            current_model, method = load_model(model_name)
             current_model_name = model_name
             print(f"✅ Model {model_name} loaded for webcam using {method}")
             return True
