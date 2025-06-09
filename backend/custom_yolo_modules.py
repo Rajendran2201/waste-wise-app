@@ -4,6 +4,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import math
 
 from ultralytics.utils.torch_utils import fuse_conv_and_bn
 
@@ -53,6 +54,7 @@ __all__ = (
     "ABlock",
     "A2C2f",
     "TryExcept",
+    "v10Detect",
 )
 
 
@@ -1260,6 +1262,44 @@ class A2C2f(nn.Module):
         return self.cv2(torch.cat(y, 1))
 
 
+class v10Detect(nn.Module):
+    """YOLOv10 Detect head module"""
+    def __init__(self, nc=80, ch=()):
+        super().__init__()
+        self.nc = nc  # number of classes
+        self.nl = len(ch)  # number of detection layers
+        self.reg_max = 16  # DFL channels (ch[0] // 4 to scale 4/8/12/16/20 for n/s/m/l/x)
+        self.no = nc + self.reg_max * 4  # number of outputs per anchor
+        self.stride = torch.zeros(self.nl)  # strides computed during build
+        self.cv2 = nn.ModuleList(nn.Sequential(Conv(x, self.reg_max * 4, 1)) for x in ch)
+        self.cv3 = nn.ModuleList(nn.Sequential(Conv(x, self.nc, 1)) for x in ch)
+        self.dfl = DFL(self.reg_max) if self.reg_max > 1 else nn.Identity()
+
+    def forward(self, x):
+        shape = x[0].shape  # BCHW
+        for i in range(self.nl):
+            x[i] = torch.cat((self.cv2[i](x[i]), self.cv3[i](x[i])), 1)
+        if self.training:
+            return x
+        elif self.dynamic or self.shape != shape:
+            self.anchors, self.strides = (x.transpose(0, 1) for x in make_anchors(x, self.stride, 0.5))
+            self.shape = shape
+
+        box, cls = torch.cat([xi.view(shape[0], self.no, -1) for xi in x], 2).split((self.reg_max * 4, self.nc), 1)
+        dbox = dist2bbox(self.dfl(box), self.anchors.unsqueeze(0), xywh=True, dim=1) * self.strides
+        y = torch.cat((dbox, cls.sigmoid()), 1)
+        return y if self.export else (y, x)
+
+    def bias_init(self):
+        """Initialize Detect() biases, WARNING: requires stride availability."""
+        m = self  # self.model[-1]  # Detect() module
+        # cf = torch.bincount(torch.tensor(np.concatenate(dataset.labels, 0)[:, 0]).long(), minlength=nc) + 1
+        # ncf = math.log(0.6 / (m.nc - 0.999999)) if cf is None else torch.log(cf / cf.sum())  # nominal class frequency
+        for a, b, s in zip(m.cv2, m.cv3, m.stride):  # from
+            a[-1].bias.data[:] = 1.0  # box
+            b[-1].bias.data[:m.nc] = math.log(5 / m.nc / (640 / s) ** 2)  # cls (.01 objects, 80 classes, 640 img)
+
+
 class TryExcept(nn.Module):
     """TryExcept module for YOLOv11/v12"""
     def __init__(self, *args, **kwargs):
@@ -1290,6 +1330,7 @@ def patch_ultralytics_modules():
     try:
         import ultralytics.nn.modules.block as block_module
         import ultralytics.nn.modules.utils as utils_module
+        import ultralytics.nn.modules.head as head_module
         
         # Add all custom modules to ultralytics modules
         custom_modules = {
@@ -1309,7 +1350,8 @@ def patch_ultralytics_modules():
             'TryExcept': TryExcept,
             'A2C2f': A2C2f,
             'ABlock': ABlock,
-            'AAttn': AAttn
+            'AAttn': AAttn,
+            'v10Detect': v10Detect
         }
         
         # Patch block module
@@ -1319,11 +1361,15 @@ def patch_ultralytics_modules():
         # Patch utils module
         utils_module.TryExcept = TryExcept
         
+        # Patch head module with v10Detect
+        head_module.v10Detect = v10Detect
+        
         # Also patch sys.modules to ensure the modules are available globally
         import sys
         for name, module in custom_modules.items():
             setattr(sys.modules['ultralytics.nn.modules.block'], name, module)
         sys.modules['ultralytics.nn.modules.utils'].TryExcept = TryExcept
+        sys.modules['ultralytics.nn.modules.head'].v10Detect = v10Detect
         
         print("✅ Patched ultralytics modules with all custom components")
     except Exception as e:
@@ -1338,3 +1384,29 @@ print("   - C3k, C3k2, Bottleneck, TryExcept (YOLOv11/v12)")
 print("   - SCDown, PSA, RepVGGDW, CIB, C2fCIB")
 print("   - Attention, C2PSA, C2fAttn, ImagePoolingAttn")
 print("✅ YOLOv10/v11/v12 compatibility modules loaded")
+
+# Helper functions for v10Detect
+def dist2bbox(distance, anchor_points, xywh=True, dim=-1):
+    """Transform distance(ltrb) to box(xywh or xyxy)."""
+    lt, rb = torch.split(distance, 2, dim)
+    x1y1 = anchor_points - lt
+    x2y2 = anchor_points + rb
+    if xywh:
+        c_xy = (x1y1 + x2y2) / 2
+        wh = x2y2 - x1y1
+        return torch.cat((c_xy, wh), dim)  # xywh bbox
+    return torch.cat((x1y1, x2y2), dim)  # xyxy bbox
+
+def make_anchors(feats, strides, grid_cell_offset=0.5):
+    """Generate anchors from features."""
+    anchor_points, stride_tensor = [], []
+    assert feats is not None
+    dtype, device = feats[0].dtype, feats[0].device
+    for i, stride in enumerate(strides):
+        _, _, h, w = feats[i].shape
+        sx = torch.arange(end=w, device=device, dtype=dtype) + grid_cell_offset  # shift x
+        sy = torch.arange(end=h, device=device, dtype=dtype) + grid_cell_offset  # shift y
+        sy, sx = torch.meshgrid(sy, sx, indexing='ij')
+        anchor_points.append(torch.stack((sx, sy), -1).view(-1, 2))
+        stride_tensor.append(torch.full((h * w, 1), stride, dtype=dtype, device=device))
+    return torch.cat(anchor_points), torch.cat(stride_tensor)

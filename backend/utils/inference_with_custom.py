@@ -8,9 +8,25 @@ import cv2
 import numpy as np
 from PIL import Image
 import pickle
+import gc
+import threading
 
 # Global flag to track module registration
 _modules_registered = False
+
+# Global model cache to prevent reloading
+_model_cache = {}
+_cache_lock = threading.Lock()
+
+def clear_model_cache():
+    """Clear the model cache to free memory"""
+    global _model_cache
+    with _cache_lock:
+        for model_name, (model, _) in _model_cache.items():
+            del model
+        _model_cache.clear()
+    gc.collect()
+    torch.cuda.empty_cache() if torch.cuda.is_available() else None
 
 def define_custom_modules():
     """Define the custom YOLO modules that are commonly missing"""
@@ -143,7 +159,7 @@ class CustomUnpickler(pickle.Unpickler):
     
     def find_class(self, module, name):
         # Handle custom YOLO modules
-        if name in ['SCDown', 'TryExcept', 'C2PSA', 'C2fPSA']:
+        if name in ['SCDown', 'TryExcept', 'C2PSA', 'C2fPSA', 'v10Detect']:
             if name in globals():
                 return globals()[name]
             else:
@@ -152,7 +168,7 @@ class CustomUnpickler(pickle.Unpickler):
                 return type(name, (nn.Module,), {'forward': lambda self, x: x})
         
         # Handle ultralytics modules that might be missing
-        if 'ultralytics' in module and name in ['SCDown', 'TryExcept', 'C2PSA', 'C2fPSA']:
+        if 'ultralytics' in module and name in ['SCDown', 'TryExcept', 'C2PSA', 'C2fPSA', 'v10Detect']:
             return globals().get(name, nn.Identity)
         
         return super().find_class(module, name)
@@ -166,9 +182,17 @@ MODEL_MAP = {
 }
 
 def load_model(model_name):
-    """Load YOLO model with comprehensive fallback methods"""
+    """Load YOLO model with comprehensive fallback methods and memory optimization"""
+    global _model_cache
+    
     # CRITICAL: Register custom modules BEFORE any model loading
     register_custom_modules()
+    
+    # Check cache first
+    with _cache_lock:
+        if model_name in _model_cache:
+            print(f"✅ Using cached model: {model_name}")
+            return _model_cache[model_name]
     
     model_path = MODEL_MAP.get(model_name)
     if not model_path:
@@ -179,19 +203,42 @@ def load_model(model_name):
     
     print(f"Attempting to load model: {model_path}")
     
-    # Method 1: Try ultralytics YOLO
+    # Clear cache if we have too many models loaded
+    with _cache_lock:
+        if len(_model_cache) >= 2:  # Only keep 2 models in memory
+            print("🧹 Clearing model cache to free memory...")
+            clear_model_cache()
+    
+    # Method 1: Try ultralytics YOLO with memory optimization
     try:
         from ultralytics import YOLO
         print("Trying ultralytics YOLO...")
+        
+        # Set memory optimization flags
+        torch.backends.cudnn.benchmark = False
+        torch.backends.cudnn.deterministic = True
+        
         model = YOLO(model_path)
+        
+        # Move to CPU to save GPU memory
+        if hasattr(model, 'model'):
+            model.model = model.model.cpu()
+        
         print("✅ Successfully loaded with ultralytics YOLO")
+        
+        # Cache the model
+        with _cache_lock:
+            _model_cache[model_name] = (model, "ultralytics")
+        
         return model, "ultralytics"
     except Exception as e1:
         print(f"❌ Ultralytics YOLO failed: {e1}")
     
-    # Method 2: Direct torch load with custom unpickler
+    # Method 2: Direct torch load with custom unpickler and memory optimization
     try:
         print("Trying direct torch.load with custom unpickler...")
+        
+        # Load with memory optimization
         with open(model_path, 'rb') as f:
             checkpoint = CustomUnpickler(f).load()
         
@@ -202,23 +249,40 @@ def load_model(model_name):
             
         if hasattr(model, 'eval'):
             model.eval()
-            
+        
+        # Move to CPU
+        model = model.cpu()
+        
         print("✅ Successfully loaded with custom unpickler")
+        
+        # Cache the model
+        with _cache_lock:
+            _model_cache[model_name] = (model, "torch_direct")
+        
         return model, "torch_direct"
     except Exception as e2:
         print(f"❌ Custom unpickler failed: {e2}")
     
-    # Method 3: Try torch.hub
+    # Method 3: Try torch.hub with memory optimization
     try:
         print("Trying torch.hub...")
         model = torch.hub.load('ultralytics/yolov5', 'custom', 
                               path=model_path, force_reload=True, trust_repo=True)
+        
+        # Move to CPU
+        model = model.cpu()
+        
         print("✅ Successfully loaded with torch.hub")
+        
+        # Cache the model
+        with _cache_lock:
+            _model_cache[model_name] = (model, "torch_hub")
+        
         return model, "torch_hub"
     except Exception as e3:
         print(f"❌ Torch hub failed: {e3}")
     
-    # Method 4: Last resort - standard torch.load
+    # Method 4: Last resort - standard torch.load with memory optimization
     try:
         print("Trying standard torch.load...")
         model = torch.load(model_path, map_location='cpu')
@@ -226,7 +290,16 @@ def load_model(model_name):
             model = model['model']
         if hasattr(model, 'eval'):
             model.eval()
+        
+        # Move to CPU
+        model = model.cpu()
+        
         print("✅ Successfully loaded with standard torch.load")
+        
+        # Cache the model
+        with _cache_lock:
+            _model_cache[model_name] = (model, "torch_standard")
+        
         return model, "torch_standard"
     except Exception as e4:
         print(f"❌ Standard torch.load failed: {e4}")

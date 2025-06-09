@@ -271,7 +271,7 @@ def predict_video():
 
 @app.route("/predict", methods=["POST"])
 def predict():
-    """Handle image file uploads and processing with enhanced error handling"""
+    """Handle image file uploads and processing with enhanced error handling and memory management"""
     try:
         logger.info("📥 Received prediction request")
         
@@ -291,6 +291,13 @@ def predict():
         if not model_name:
             logger.error("❌ No model specified")
             return jsonify({"error": "No model specified"}), 400
+
+        # Memory optimization: Clear cache before processing
+        try:
+            from utils.inference_with_custom import clear_model_cache
+            clear_model_cache()
+        except:
+            pass
 
         # Save uploaded file
         filename = secure_filename(file.filename)
@@ -321,7 +328,28 @@ def predict():
             })
         else:
             logger.info("🖼️ Processing image file")
-            result_path, result_data = run_inference(filepath, model_name)
+            
+            # Add timeout for model loading
+            import signal
+            
+            def timeout_handler(signum, frame):
+                raise TimeoutError("Model loading timed out")
+            
+            # Set timeout for model loading (60 seconds)
+            signal.signal(signal.SIGALRM, timeout_handler)
+            signal.alarm(60)
+            
+            try:
+                result_path, result_data = run_inference(filepath, model_name)
+                signal.alarm(0)  # Cancel timeout
+            except TimeoutError:
+                signal.alarm(0)  # Cancel timeout
+                logger.error("❌ Model loading timed out")
+                return jsonify({"error": "Model loading timed out. Please try a smaller model."}), 500
+            except Exception as e:
+                signal.alarm(0)  # Cancel timeout
+                raise e
+            
             os.remove(filepath)
             logger.info(f"✅ Image processing complete - Detections: {len(result_data)}")
             return jsonify({
@@ -334,6 +362,14 @@ def predict():
         logger.error(f"❌ Error type: {type(e).__name__}")
         import traceback
         logger.error(f"❌ Full traceback: {traceback.format_exc()}")
+        
+        # Clean up any uploaded file
+        if 'filepath' in locals() and os.path.exists(filepath):
+            try:
+                os.remove(filepath)
+            except:
+                pass
+        
         return jsonify({"error": f"Inference failed: {str(e)}"}), 500
 
 @app.route("/results/<filename>")
@@ -459,6 +495,46 @@ def test_upload():
         
     except Exception as e:
         return jsonify({"error": f"Upload test failed: {str(e)}"}), 500
+
+@app.route("/memory", methods=["GET"])
+def memory_status():
+    """Check memory usage and model cache status"""
+    try:
+        import psutil
+        import gc
+        
+        # Get memory info
+        memory = psutil.virtual_memory()
+        
+        # Get model cache info
+        from utils.inference_with_custom import _model_cache
+        cache_info = {
+            "cached_models": list(_model_cache.keys()),
+            "cache_size": len(_model_cache)
+        }
+        
+        # Force garbage collection
+        gc.collect()
+        
+        return jsonify({
+            "memory_percent": memory.percent,
+            "memory_available_mb": memory.available / 1024 / 1024,
+            "memory_used_mb": memory.used / 1024 / 1024,
+            "cache_info": cache_info,
+            "status": "healthy" if memory.percent < 80 else "warning"
+        })
+    except Exception as e:
+        return jsonify({"error": f"Memory check failed: {str(e)}"}), 500
+
+@app.route("/clear-cache", methods=["POST"])
+def clear_cache():
+    """Clear model cache to free memory"""
+    try:
+        from utils.inference_with_custom import clear_model_cache
+        clear_model_cache()
+        return jsonify({"message": "Cache cleared successfully"})
+    except Exception as e:
+        return jsonify({"error": f"Cache clear failed: {str(e)}"}), 500
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5001))
