@@ -71,7 +71,7 @@ def test_model_loading():
         print(f"🔍 Testing model: {model_path}")
         
         # Import inference module
-        from utils.inference import load_model
+        from utils.inference_with_custom import load_model
         
         # Get model name from filename
         model_name = model_files[0].replace('.pt', '')

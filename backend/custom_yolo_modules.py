@@ -50,6 +50,9 @@ __all__ = (
     "PSA",
     "SCDown",
     "TorchVision",
+    "ABlock",
+    "A2C2f",
+    "TryExcept",
 )
 
 
@@ -1221,6 +1224,40 @@ class AAttn(nn.Module):
             B, N, _ = x.shape
         x = x.reshape(B, H, W, C).permute(0, 3, 1, 2)
         return self.proj(x + pp)
+
+
+class ABlock(nn.Module):
+    """ABlock module for YOLOv12"""
+    def __init__(self, c1, c2, n=1, shortcut=True, g=1, e=0.5):
+        super().__init__()
+        self.c = int(c2 * e)
+        self.cv1 = Conv(c1, 2 * self.c, 1, 1)
+        self.cv2 = Conv(2 * self.c, c2, 1)
+        self.m = nn.ModuleList([Conv(self.c, self.c, 3, 1, 1, g=self.c) for _ in range(n)])
+        self.shortcut = shortcut and c1 == c2
+        
+    def forward(self, x):
+        y = self.cv1(x)
+        y1, y2 = y.chunk(2, 1)
+        for m in self.m:
+            y1 = m(y1) + y1
+        return self.cv2(torch.cat([y1, y2], 1)) + (x if self.shortcut else 0)
+
+
+class A2C2f(nn.Module):
+    """A2C2f module for YOLOv12"""
+    def __init__(self, c1, c2, n=1, shortcut=False, g=1, e=0.5):
+        super().__init__()
+        self.c = int(c2 * e)
+        self.cv1 = Conv(c1, 2 * self.c, 1, 1)
+        self.cv2 = Conv((2 + n) * self.c, c2, 1)
+        self.m = nn.ModuleList([ABlock(self.c, self.c, 1, True, g, 1.0) for _ in range(n)])
+        
+    def forward(self, x):
+        y = list(self.cv1(x).chunk(2, 1))
+        for m in self.m:
+            y.append(m(y[-1]))
+        return self.cv2(torch.cat(y, 1))
 
 
 class TryExcept(nn.Module):
