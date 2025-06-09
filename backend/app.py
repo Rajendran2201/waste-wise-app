@@ -21,10 +21,18 @@ current_model_name = None
 # CRITICAL: Import custom modules BEFORE importing inference
 try:
     import custom_yolo_modules
-    logger.info("✅ Custom YOLO modules loaded successfully")
+    from custom_yolo_modules import register_modules, patch_ultralytics_modules
+    
+    # Register custom modules with ultralytics
+    register_modules()
+    patch_ultralytics_modules()
+    
+    logger.info("✅ Custom YOLO modules loaded and registered successfully")
 except ImportError as e:
     logger.error(f"❌ Failed to import custom_yolo_modules: {e}")
     logger.error("Make sure custom_yolo_modules.py exists in your project root")
+except Exception as e:
+    logger.error(f"❌ Failed to register custom modules: {e}")
 
 # Now import inference utilities
 from utils.inference import load_model, run_inference
