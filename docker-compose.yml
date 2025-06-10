@@ -1,0 +1,22 @@
+services:
+  backend:
+    build:
+      context: ./backend
+    ports:
+      - "5001:5001"
+    volumes:
+      - ./backend:/app
+    working_dir: /app
+    command: gunicorn --bind 0.0.0.0:5001 --workers 1 app:app
+
+  frontend:
+    build:
+      context: ./frontend/waste-detection-ui
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend/waste-detection-ui:/app
+    working_dir: /app
+    command: npm start
+    stdin_open: true
+    tty: true

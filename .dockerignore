@@ -1,0 +1,50 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+/backend/static
+/backend/uploads
+# Virtual environment
+venv/
+.env/
+.venv/
+
+# Jupyter Notebooks
+*.ipynb
+
+# Logs and temp files
+*.log
+*.tmp
+*.swp
+*.bak
+
+# OS metadata
+.DS_Store
+Thumbs.db
+
+# Git
+.git/
+.gitignore
+
+# Docker-related
+Dockerfile*
+docker-compose.yml
+
+# Python cache
+*.pyo
+*.pyd
+
+# Uploads (optional — only if dynamically generated)
+uploads/
+
+# Build/test artifacts
+build/
+dist/
+.eggs/
+*.egg-info/
+
+# IDE settings
+.vscode/
+.idea/
+*.code-workspace
